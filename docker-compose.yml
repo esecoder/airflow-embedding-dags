@@ -1,0 +1,31 @@
+# ⚠️ THE ONLY WAY TO PROVE A DAG RUNS. test_dags.py checks structure with `ast`; it
+# cannot catch a malformed operator argument, a bad connection id, or anything that
+# only appears against a live scheduler.
+services:
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_PASSWORD: airflow, POSTGRES_DB: airflow }
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      retries: 10
+
+  airflow:
+    image: apache/airflow:2.10.3-python3.12
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # ⚠️ Connections belong here, not in the UI. A connection created by hand is
+      # invisible in review and missing on the next machine.
+      AIRFLOW_CONN_RETRIEVAL_DB: postgresql://postgres:test@host.docker.internal:5433/vectors
+    volumes:
+      - ./embedding_dags.py:/opt/airflow/dags/embedding_dags.py:ro
+    ports: ["8080:8080"]
+    command: >
+      bash -c "airflow db migrate &&
+               airflow users create --username admin --password admin
+                 --firstname A --lastname B --role Admin --email a@b.c || true;
+               airflow scheduler & airflow webserver"
